@@ -11,11 +11,14 @@
 
 /*** defines ***/
 
+#define VERSION "0.0.1"
+
 #define CTRL_KEY(k) ((k) & 0x1f)
 
 /*** data ***/
 
 struct editorConfig {
+  int cx, cy;
   int screenrows;
   int screencols;
   struct termios orig_termios;
@@ -24,11 +27,6 @@ struct editorConfig {
 struct editorConfig E;
 
 /*** terminal ***/
-
-void clear(struct abuf *ab) {
-  abufAppend(ab, "\x1b[2J", 4);
-  abufAppend(ab, "\x1b[H", 3);
-}
 
 void die(const char *s) {
   write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -156,8 +154,30 @@ void abufFree(struct abuf *ab) {
 
 void editorDrawRows(struct abuf *ab) {
   for (int y = 0; y < E.screenrows; y++) {
-    abufAppend(ab, "~", 1);
+    if (y == E.screenrows / 3) {
+      char welcome[80];
+      int welcomeLen = snprintf(welcome, sizeof(welcome), "Prizs editor -- version %s", VERSION);
 
+      if (welcomeLen > E.screencols) {
+        welcomeLen = E.screencols;
+      }
+
+      int padding = (E.screencols - welcomeLen) / 2;
+      if (padding) {
+        abufAppend(ab, "~", 1);
+        padding--;
+      }
+
+      while (padding--) {
+        abufAppend(ab, " ", 1);
+      }
+
+      abufAppend(ab, welcome, welcomeLen);
+    } else {
+      abufAppend(ab, "~", 1);
+    }
+
+    abufAppend(ab, "\x1b[K", 3);
     if (y < E.screenrows - 1) {
       abufAppend(ab, "\r\n", 2);
     }
@@ -167,12 +187,16 @@ void editorDrawRows(struct abuf *ab) {
 void editorRefreshScreen(void) {
   struct abuf ab = ABUF_INIT;
 
-  abufAppend(&ab, "\x1b[2J", 4);
+  abufAppend(&ab, "\x1b[?25l", 6);
   abufAppend(&ab, "\x1b[H", 3);
 
   editorDrawRows(&ab);
 
-  abufAppend(&ab, "\x1b[H", 3);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+  abufAppend(&ab, buf, strlen(buf));
+
+  abufAppend(&ab, "\x1b[?25h", 6);
 
   write(STDOUT_FILENO, ab.b, ab.len);
   abufFree(&ab);
@@ -195,6 +219,9 @@ void editorProcessKeypress() {
 /*** init ***/
 
 void initEditor(void) {
+  E.cx = 0;
+  E.cy = 0;
+
   if (getWindowSize(&E.screenrows, &E.screencols) == -1) {
     die("getWindowSize");
   }
